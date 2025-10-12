@@ -65,4 +65,46 @@ router.post('/login', async (req, res) => {
     }
 });
 
+// Get all users endpoint
+router.get('/users', async (req, res) => {
+    try {
+        const users = await User.find({}, '-password'); // Exclude password field
+        res.json({
+            users: users.map(user => ({
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                gender: user.gender,
+                role: user.role,
+                createdAt: user.createdAt
+            }))
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching users', error: error.message });
+    }
+});
+
+// Get single user by ID endpoint
+router.get('/users/:userId', async (req, res) => {
+    try {
+        const user = await User.findById(req.params.userId, '-password');
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        
+        res.json({
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                gender: user.gender,
+                role: user.role,
+                createdAt: user.createdAt
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching user', error: error.message });
+    }
+});
+
 module.exports = router;

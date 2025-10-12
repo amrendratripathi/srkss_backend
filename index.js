@@ -16,7 +16,23 @@ mongoose.connect('mongodb+srv://rajjubabu531_db_user:c22DpB8EDOKUtEzh@srkss.wj2x
     useNewUrlParser: true,
     useUnifiedTopology: true
 })
-.then(() => console.log('Connected to MongoDB'))
+.then(async () => {
+    console.log('Connected to MongoDB');
+    
+    // Get the default connection
+    const db = mongoose.connection;
+    
+    try {
+        // Drop the existing collection to remove all indexes
+        await db.collection('users').drop();
+        console.log('Cleared existing collection and indexes');
+    } catch (error) {
+        // Ignore if collection doesn't exist
+        if (error.code !== 26) {
+            console.error('Error clearing collection:', error);
+        }
+    }
+})
 .catch(err => console.error('MongoDB connection error:', err));
 
 // Start server
