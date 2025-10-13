@@ -1,9 +1,5 @@
 const mongoose = require('mongoose');
 
-// Clear any existing model to prevent cached schema issues
-mongoose.models = {};
-mongoose.modelSchemas = {};
-
 const userSchema = new mongoose.Schema({
     name: {
         type: String,

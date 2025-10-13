@@ -3,10 +3,31 @@ const bcrypt = require('bcrypt');
 const User = require('../models/User');
 const router = express.Router();
 
+// Test route to check if API is working
+router.get('/test', (req, res) => {
+    res.json({ message: 'API is working' });
+});
+
 // Registration endpoint
 router.post('/register', async (req, res) => {
     try {
         const { name, gender, email, password } = req.body;
+
+        // Validate required fields
+        if (!name || !gender || !email || !password) {
+            return res.status(400).json({
+                message: 'Missing required fields',
+                required: 'name, gender, email, and password are required'
+            });
+        }
+
+        // Validate gender
+        if (!['male', 'female', 'other'].includes(gender)) {
+            return res.status(400).json({
+                message: 'Invalid gender',
+                allowed: ['male', 'female', 'other']
+            });
+        }
 
         // Check if user already exists
         const existingUser = await User.findOne({ email });
@@ -19,16 +40,43 @@ router.post('/register', async (req, res) => {
 
         // Create new user
         const user = new User({
-            name,
+            name: name.trim(),
             gender,
-            email,
+            email: email.toLowerCase().trim(),
             password: hashedPassword
         });
 
-        await user.save();
-        res.status(201).json({ message: 'User registered successfully' });
+        // Try to save and catch validation errors
+        try {
+            await user.save();
+            res.status(201).json({ 
+                message: 'User registered successfully',
+                user: {
+                    name: user.name,
+                    email: user.email,
+                    gender: user.gender
+                }
+            });
+        } catch (saveError) {
+            console.error('Save Error:', saveError);
+            if (saveError.name === 'ValidationError') {
+                return res.status(400).json({
+                    message: 'Validation error',
+                    errors: Object.keys(saveError.errors).reduce((acc, key) => {
+                        acc[key] = saveError.errors[key].message;
+                        return acc;
+                    }, {})
+                });
+            }
+            throw saveError;
+        }
     } catch (error) {
-        res.status(500).json({ message: 'Error registering user', error: error.message });
+        console.error('Registration Error:', error);
+        res.status(500).json({
+            message: 'Error registering user',
+            error: error.message,
+            details: error.errors || {}
+        });
     }
 });
 

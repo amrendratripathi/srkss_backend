@@ -1,39 +1,30 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const bcrypt = require('bcrypt');
 const cors = require('cors');
-require('dotenv').config();
-
 const authRoutes = require('./routes/auth');
 
 const app = express();
-app.use(cors()); // Enable CORS for all origins
+
+// Middleware
+app.use(cors());
 app.use(express.json());
+
+// Health check endpoint for Render.com
+app.get('/', (req, res) => {
+    res.send('✅ Backend is running successfully!');
+});
+
+// Routes
 app.use('/api', authRoutes);
 
 // MongoDB connection
-mongoose.connect('mongodb+srv://rajjubabu531_db_user:c22DpB8EDOKUtEzh@srkss.wj2xqv4.mongodb.net/?retryWrites=true&w=majority&appName=srkss', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
+mongoose.connect('mongodb+srv://rajjubabu531_db_user:c22DpB8EDOKUtEzh@srkss.wj2xqv4.mongodb.net/?retryWrites=true&w=majority&appName=srkss')
+.then(() => {
+    console.log('Connected to MongoDB successfully');
 })
-.then(async () => {
-    console.log('Connected to MongoDB');
-    
-    // Get the default connection
-    const db = mongoose.connection;
-    
-    try {
-        // Drop the existing collection to remove all indexes
-        await db.collection('users').drop();
-        console.log('Cleared existing collection and indexes');
-    } catch (error) {
-        // Ignore if collection doesn't exist
-        if (error.code !== 26) {
-            console.error('Error clearing collection:', error);
-        }
-    }
-})
-.catch(err => console.error('MongoDB connection error:', err));
+.catch((err) => {
+    console.error('MongoDB connection error:', err);
+});
 
 // Start server
 const PORT = process.env.PORT || 3000;
