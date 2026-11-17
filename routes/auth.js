@@ -1,158 +1,72 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
-const User = require('../models/User');
-const router = express.Router();
+const { createToken, requireAdmin } = require('../middleware/auth');
 
-// Test route to check if API is working
-router.get('/test', (req, res) => {
-    res.json({ message: 'API is working' });
-});
+module.exports = (pool, jwtSecret) => {
+    const router = express.Router();
 
-// Registration endpoint
-router.post('/register', async (req, res) => {
-    try {
-        const { name, gender, email, password } = req.body;
+    router.get('/test', (req, res) => res.json({ message: 'API is working' }));
 
-        // Validate required fields
-        if (!name || !gender || !email || !password) {
-            return res.status(400).json({
-                message: 'Missing required fields',
-                required: 'name, gender, email, and password are required'
-            });
+    router.post('/register', async (req, res) => {
+        const name = String(req.body.name || '').trim();
+        const gender = String(req.body.gender || '').trim().toLowerCase();
+        const mobile = String(req.body.mobile || '').trim();
+        const address = String(req.body.address || '').trim();
+        const password = String(req.body.password || '');
+        if (!name || !gender || !mobile || !address || !password) {
+            return res.status(400).json({ message: 'Name, gender, mobile number, address, and password are required' });
         }
-
-        // Validate gender
         if (!['male', 'female', 'other'].includes(gender)) {
-            return res.status(400).json({
-                message: 'Invalid gender',
-                allowed: ['male', 'female', 'other']
-            });
+            return res.status(400).json({ message: 'Gender must be male, female, or other' });
         }
+        if (password.length < 6) return res.status(400).json({ message: 'Password must be at least 6 characters' });
 
-        // Check if user already exists
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(400).json({ message: 'User already exists' });
-        }
-
-        // Hash password
-        const hashedPassword = await bcrypt.hash(password, 10);
-
-        // Create new user
-        const user = new User({
-            name: name.trim(),
-            gender,
-            email: email.toLowerCase().trim(),
-            password: hashedPassword
-        });
-
-        // Try to save and catch validation errors
         try {
-            await user.save();
-            res.status(201).json({ 
-                message: 'User registered successfully',
-                user: {
-                    name: user.name,
-                    email: user.email,
-                    gender: user.gender
-                }
+            const passwordHash = await bcrypt.hash(password, 10);
+            const result = await pool.query(
+                `INSERT INTO users (name, gender, mobile, address, password_hash)
+                 VALUES ($1, $2, $3, $4, $5)
+                 RETURNING id, name, gender, mobile, address, role, created_at`,
+                [name, gender, mobile, address, passwordHash]
+            );
+            return res.status(201).json({ message: 'User registered successfully', user: result.rows[0] });
+        } catch (error) {
+            if (error.code === '23505') return res.status(409).json({ message: 'A user with this mobile number already exists' });
+            console.error('Registration error:', error);
+            return res.status(500).json({ message: 'Could not register user' });
+        }
+    });
+
+    router.post('/login', async (req, res) => {
+        const mobile = String(req.body.mobile || req.body.email || '').trim();
+        const password = String(req.body.password || '');
+        if (!mobile || !password) return res.status(400).json({ message: 'Mobile number and password are required' });
+        try {
+            const result = await pool.query('SELECT * FROM users WHERE mobile = $1', [mobile]);
+            const user = result.rows[0];
+            if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+                return res.status(401).json({ message: 'Invalid mobile number or password' });
+            }
+            return res.json({
+                message: 'Login successful',
+                token: createToken(user, jwtSecret),
+                user: { id: user.id, name: user.name, mobile: user.mobile, address: user.address, gender: user.gender, role: user.role },
             });
-        } catch (saveError) {
-            console.error('Save Error:', saveError);
-            if (saveError.name === 'ValidationError') {
-                return res.status(400).json({
-                    message: 'Validation error',
-                    errors: Object.keys(saveError.errors).reduce((acc, key) => {
-                        acc[key] = saveError.errors[key].message;
-                        return acc;
-                    }, {})
-                });
-            }
-            throw saveError;
+        } catch (error) {
+            console.error('Login error:', error);
+            return res.status(500).json({ message: 'Could not log in' });
         }
-    } catch (error) {
-        console.error('Registration Error:', error);
-        res.status(500).json({
-            message: 'Error registering user',
-            error: error.message,
-            details: error.errors || {}
-        });
-    }
-});
+    });
 
-// Login endpoint
-router.post('/login', async (req, res) => {
-    try {
-        const { email, password } = req.body;
-
-        // Find user by email
-        const user = await User.findOne({ email });
-        if (!user) {
-            return res.status(401).json({ message: 'Invalid credentials' });
+    router.get('/users', requireAdmin(jwtSecret), async (req, res) => {
+        try {
+            const result = await pool.query('SELECT id, name, gender, mobile, address, role, created_at AS "createdAt" FROM users ORDER BY created_at DESC');
+            return res.json({ users: result.rows });
+        } catch (error) {
+            console.error('Users query error:', error);
+            return res.status(500).json({ message: 'Could not fetch users' });
         }
+    });
 
-        // Check password
-        const isValidPassword = await bcrypt.compare(password, user.password);
-        if (!isValidPassword) {
-            return res.status(401).json({ message: 'Invalid credentials' });
-        }
-
-        // Send success response
-        res.json({
-            message: 'Login successful',
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                gender: user.gender,
-                role: user.role
-            }
-        });
-    } catch (error) {
-        res.status(500).json({ message: 'Error logging in', error: error.message });
-    }
-});
-
-// Get all users endpoint
-router.get('/users', async (req, res) => {
-    try {
-        const users = await User.find({}, '-password'); // Exclude password field
-        res.json({
-            users: users.map(user => ({
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                gender: user.gender,
-                role: user.role,
-                createdAt: user.createdAt
-            }))
-        });
-    } catch (error) {
-        res.status(500).json({ message: 'Error fetching users', error: error.message });
-    }
-});
-
-// Get single user by ID endpoint
-router.get('/users/:userId', async (req, res) => {
-    try {
-        const user = await User.findById(req.params.userId, '-password');
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-        
-        res.json({
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                gender: user.gender,
-                role: user.role,
-                createdAt: user.createdAt
-            }
-        });
-    } catch (error) {
-        res.status(500).json({ message: 'Error fetching user', error: error.message });
-    }
-});
-
-module.exports = router;
+    return router;
+};
